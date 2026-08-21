@@ -4,3 +4,14 @@
 **/log/
 **/install/
 simulate/mujoco
+# Entrance test — large artifacts
+data/
+datasets/
+episodes/
+recordings/
+*.mp4
+*.hdf5
+*.parquet
+
+# Hiring process material
+*.pdf
