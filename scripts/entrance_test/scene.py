@@ -37,7 +37,40 @@ def build(block_pos=(0.5, -0.2, 0.45), fix_base: bool = True):
     spec.visual.global_.offwidth = 1280
     spec.visual.global_.offheight = 960
 
+    # Sky + ground. Purely visual, but the demo video and any human looking at
+    # the scene both need it, and cameras used for VLA data see it too.
+    sky = spec.add_texture()
+    sky.name = "skybox"
+    sky.type = mujoco.mjtTexture.mjTEXTURE_SKYBOX
+    sky.builtin = mujoco.mjtBuiltin.mjBUILTIN_GRADIENT
+    sky.rgb1 = [0.30, 0.50, 0.70]
+    sky.rgb2 = [0.0, 0.0, 0.0]
+    sky.width, sky.height = 512, 3072
+
+    grid = spec.add_texture()
+    grid.name = "groundtex"
+    grid.type = mujoco.mjtTexture.mjTEXTURE_2D
+    grid.builtin = mujoco.mjtBuiltin.mjBUILTIN_CHECKER
+    grid.rgb1 = [0.20, 0.30, 0.40]
+    grid.rgb2 = [0.10, 0.20, 0.30]
+    grid.mark = mujoco.mjtMark.mjMARK_EDGE
+    grid.markrgb = [0.8, 0.8, 0.8]
+    grid.width, grid.height = 300, 300
+
+    ground = spec.add_material()
+    ground.name = "groundplane"
+    ground.textures[mujoco.mjtTextureRole.mjTEXROLE_RGB] = "groundtex"
+    ground.texuniform = True
+    ground.texrepeat = [5, 5]
+    ground.reflectance = 0.15
+
     world = spec.worldbody
+
+    floor = world.add_geom()
+    floor.name = "floor"
+    floor.type = mujoco.mjtGeom.mjGEOM_PLANE
+    floor.size = [0, 0, 0.05]
+    floor.material = "groundplane"
 
     light = world.add_light()
     light.pos = [0, 0, 2.5]
@@ -69,8 +102,8 @@ def build(block_pos=(0.5, -0.2, 0.45), fix_base: bool = True):
 
     cam = world.add_camera()
     cam.name = "scene_cam"
-    cam.pos = [1.4, -1.0, 1.2]
+    cam.pos = [1.3, -1.3, 1.15]
     cam.mode = mujoco.mjtCamLight.mjCAMLIGHT_TARGETBODY
-    cam.targetbody = "table"
+    cam.targetbody = "pelvis"
 
     return spec, spec.compile()
