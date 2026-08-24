@@ -30,8 +30,48 @@ suite. Verified against `unitree_robots/g1/scene_29dof.xml` on day one:
 
 ### Design decisions taken from these
 
-_Gripper approach and why. Base fixed vs. balancing, and why. Record the reasoning —
-these are the load-bearing choices in the whole project._
+**Fixed base.** The pelvis free joint is removed (`scene.py`). These are tabletop
+manipulation tasks; whole-body balancing is a separate research problem that would
+dominate the two weeks. This matches how LIBERO-style manipulation benchmarks are posed.
+
+**Parallel-jaw gripper, real contact physics** (`gripper.py`). Two slide-jointed
+finger pads per wrist, driven by position actuators, added through MuJoCo's spec API
+so the upstream robot XML stays untouched. Rejected alternatives: a weld-constraint
+"magnetic" grasp (fast, but the grasp would not be physical, a weak answer to the
+brief's "interact with the environment correctly"), and Menagerie's three-finger G1
+(highest fidelity, but multi-finger grasp control is a research problem in itself).
+
+**Software PD control** (`control.py`). Every G1 actuator here is a pure torque source
+(gaintype=FIXED, biastype=NONE) with no gravity compensation, so an uncommanded arm
+hangs limp. Joint-space PD is the minimum needed for any scripted motion.
+
+### What tuning actually revealed
+
+The first lift attempts dropped the block, and the instinct was to grip harder. That
+was wrong. A parameter sweep over grip stiffness and friction showed:
+
+| finger kp | friction | outcome |
+|---|---|---|
+| 60 | 1.6 | **held**, +0.093 m |
+| 250 | 1.6 | **held**, +0.091 m |
+| 800 | 1.6 | dropped |
+| 60 / 250 / 800 | 3.0 | dropped |
+
+Raising either friction or stiffness made grasping strictly *worse* — excessive
+contact stiffness destabilises MuJoCo's solver and ejects the object. The real fix
+was in the controller, not the gripper: stepping the PD target discontinuously
+saturates the torque limits and shakes the block out. Ramping the target smoothly
+(`control.ramp`) made the stock parameters work.
+
+**Grasp assist deferred.** A contact-gated weld (weld only while both finger pads
+report real contact) remains available as a stabiliser if longer trajectories or
+randomised object variants prove brittle. It is not needed for the current motion
+profile, and unearned complexity is worth avoiding. If added, the recorded *action*
+will remain the gripper command, never the weld state — a policy trained on this data
+must learn to close the gripper, because that is what real hardware executes.
+
+**Verified:** `scripts/entrance_test/test_grasp.py` -- 8 contacts on close,
++0.093 m lift, contacts maintained throughout.
 
 ## 2. Task design
 
