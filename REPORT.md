@@ -163,6 +163,41 @@ Failed episodes are recorded too, flagged `success: false`. They are excluded
 from the training split but kept, because failure data is useful for evaluation
 and for training value or critic heads later.
 
+### Dataset collected
+
+| | |
+|---|---|
+| Episodes | 50 attempted, **43 successful (86%)** |
+| Frames | 12,492 recorded / 10,353 in the training split |
+| Rate | 30 Hz, ~250 frames (~8 s) per episode |
+| Cameras | head + wrist, 320x240 RGB |
+| Collection time | 322 s (6.4 s/episode) |
+| Raw size | 382 MB |
+| LeRobot size | 61 MB (MP4-encoded) |
+
+All 7 failures are the same boundary case documented in section 3 -- block
+sampled at the far edge of the reachable band, gripper arrives rotated, finger
+pad knocks the block instead of straddling it.
+
+### Conversion to LeRobot
+
+`to_lerobot.py` converts to the LeRobot format, which is what GR00T N1.5 and
+openpi consume -- so the data is usable by an off-the-shelf VLA rather than only
+by my own code. Feature naming follows the LeRobot convention
+(`observation.images.<cam>`, `observation.state`, `action`, `task`); LeRobot adds
+`timestamp` / `frame_index` / `episode_index` / `index` / `task_index` itself.
+
+Converting is not evidence on its own, so `verify_lerobot.py` re-opens the
+dataset and asserts that frames load with the right shapes, that images decode
+into [0,1], and that every frame carries a non-empty instruction. It passes on
+all 43 episodes.
+
+One platform note worth recording: LeRobot defaults to the `torchcodec` video
+decoder, which needs arm64 FFmpeg shared libraries under `/opt/homebrew`. This
+machine has only an x86 Homebrew FFmpeg under `/usr/local`, so torchcodec fails
+to load with a `libavutil` dlopen error. Passing `video_backend="pyav"` avoids
+it entirely. Writing was never affected -- only decoding.
+
 ### A bug worth recording
 
 The IK grasp site was initially rendered as a visible green marker, and it
