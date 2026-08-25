@@ -42,9 +42,13 @@ class PickPlace:
         self.arm = ArmPD(self.m)
         self.ik = ArmIK(self.m, "right_grasp_site", ARM_JOINTS)
         self.qadr = self.ik.qadr
+        self.fadr = [self.m.jnt_qposadr[nid(mujoco.mjtObj.mjOBJ_JOINT, n)]
+                     for n in ("right_finger_l_slide", "right_finger_r_slide")]
         mujoco.mj_forward(self.m, self.d)
         self.frames = []
         self.renderer = None
+        self.recorder = None
+        self._grip_cmd = 0.0
 
     # ---- helpers -------------------------------------------------------
     def contacts(self):
@@ -60,6 +64,20 @@ class PickPlace:
 
     def enable_recording(self, w=960, h=720):
         self.renderer = mujoco.Renderer(self.m, h, w)
+
+    def attach_recorder(self, recorder):
+        recorder.attach(self.m)
+        self.recorder = recorder
+
+    def observation(self):
+        """Proprioception: 7 arm joint angles + 2 finger positions."""
+        return np.concatenate([self.d.qpos[self.qadr],
+                               [self.d.qpos[a] for a in self.fadr]])
+
+    def _record(self, q_target):
+        if self.recorder is not None:
+            action = np.concatenate([q_target, [self._grip_cmd]])
+            self.recorder.step(self.m, self.d, self.observation(), action)
 
     def _maybe_frame(self, i, every=17):
         if self.renderer is not None and i % every == 0:
@@ -78,8 +96,10 @@ class PickPlace:
                 self.d, xyz, TOP_DOWN if orient else None)
             self.arm.apply(self.d, q_target)
             if grip is not None:
+                self._grip_cmd = grip
                 for a in self.fingers:
                     self.d.ctrl[a] = grip
+            self._record(q_target)
             mujoco.mj_step(self.m, self.d)
             self._maybe_frame(i)
             if err < tol and i > steps // 4:
@@ -88,10 +108,12 @@ class PickPlace:
 
     def set_grip(self, value, steps=400):
         q = self.d.qpos[self.qadr].copy()
+        self._grip_cmd = value
         for i in range(steps):
             self.arm.apply(self.d, q)
             for a in self.fingers:
                 self.d.ctrl[a] = value
+            self._record(q)
             mujoco.mj_step(self.m, self.d)
             self._maybe_frame(i)
 

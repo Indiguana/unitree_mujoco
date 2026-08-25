@@ -142,13 +142,36 @@ frame, is the obvious next step.
 
 ## 4. Data collection pipeline
 
-_What is recorded per frame and **why a VLA needs each field**._
+Demonstrations come from the scripted controller rather than teleoperation.
+Upstream's data path routes through `xr_teleoperate`, which needs an XR headset;
+scripted control is also required by the brief in its own right, so one
+controller serves both purposes.
 
-| Field | Source | Why a VLA needs it |
+Two observation cameras were added, both rigidly mounted as they would be on
+real hardware: `head_cam` on the torso and `wrist_cam` on the gripper palm.
+
+| Field | Shape | Why a VLA needs it |
 |---|---|---|
-| | | |
+| `observation.images.head` | 320x240 RGB | Scene context -- where the object is, where the target is, what else is present. |
+| `observation.images.wrist` | 320x240 RGB | Once the gripper closes in, the object leaves the useful resolution of the head view. The wrist view resolves fine alignment and transfers best across changes in base pose. |
+| `observation.state` | 9 | Proprioception: 7 arm joint angles + 2 finger positions. Images alone are ambiguous about joint angles behind occlusions. |
+| `action` | 8 | 7 commanded arm joint targets + gripper command. Deliberately the *commanded* target, not the achieved state -- a policy must emit what the controller consumes, and on hardware the achieved state lags the command. |
+| `task` | string | The instruction. This is what makes the data vision-*language*-action rather than plain behaviour cloning, and what lets one policy serve several tasks. |
+| `timestamp`, `frame_index` | scalar | Temporal order, and chunking action sequences for models that predict horizons. |
 
-_Episode counts, storage footprint, and how I validated the data by replaying it._
+Failed episodes are recorded too, flagged `success: false`. They are excluded
+from the training split but kept, because failure data is useful for evaluation
+and for training value or critic heads later.
+
+### A bug worth recording
+
+The IK grasp site was initially rendered as a visible green marker, and it
+appeared in both observation cameras. That is a direct information leak: a
+policy would learn to chase the marker, benchmark well in simulation, and fail
+completely on real data where no marker exists. It is now fully transparent,
+verified by counting green pixels in the rendered frames (0 remaining). The
+general lesson is that anything added to the scene for the *controller's*
+benefit has to be checked against what the *cameras* see.
 
 ## 5. Policy integration (stretch)
 

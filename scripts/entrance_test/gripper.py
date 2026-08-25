@@ -26,6 +26,13 @@ def add_parallel_gripper(spec, wrist_body: str, prefix: str):
     """Attach a parallel-jaw gripper to `wrist_body`. Returns joint names."""
     wrist = spec.body(wrist_body)
 
+    # Drop the decorative rubber-hand mesh. It has contype=0/conaffinity=0 so it
+    # never collided, but it occupies exactly the space the gripper now needs
+    # and sits directly in front of the wrist camera.
+    for g in list(wrist.geoms):
+        if "rubber_hand" in (g.meshname or ""):
+            spec.delete(g)
+
     palm = wrist.add_body()
     palm.name = f"{prefix}_gripper_palm"
     palm.pos = [PALM_OFFSET_X, 0, 0]
@@ -35,7 +42,10 @@ def add_parallel_gripper(spec, wrist_body: str, prefix: str):
     grasp.name = f"{prefix}_grasp_site"
     grasp.pos = [FINGER_HALF[0] * 1.2, 0, 0]
     grasp.size = [0.006, 0.006, 0.006]
-    grasp.rgba = [0.1, 0.9, 0.2, 0.6]
+    # Fully transparent: this is an IK target, not part of the world. Rendering
+    # it would leak the answer straight into the observation images -- a policy
+    # would just learn to chase the marker, and the dataset would be worthless.
+    grasp.rgba = [0.1, 0.9, 0.2, 0.0]
 
     joints = []
     for side, sign in (("l", 1.0), ("r", -1.0)):

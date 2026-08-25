@@ -118,6 +118,26 @@ def build(block_pos=None, fix_base: bool = True):
     bg.friction = [1.6, 0.05, 0.001]
     bg.mass = 0.05
 
+    # --- observation cameras for VLA data -----------------------------
+    # A VLA needs the scene from a stable viewpoint plus a close-in view that
+    # moves with the hand; the wrist view is what disambiguates fine alignment
+    # once the object is out of the third-person camera's useful resolution.
+    # Both are rigidly mounted, as they would be on real hardware.
+    head = spec.body("torso_link").add_camera()
+    head.name = "head_cam"
+    head.pos = [0.08, 0.0, 0.42]                 # approx head height on torso
+    head.mode = mujoco.mjtCamLight.mjCAMLIGHT_TARGETBODY
+    head.targetbody = "table"
+    head.fovy = 58
+
+    wrist = spec.body(f"right_gripper_palm").add_camera()
+    wrist.name = "wrist_cam"
+    wrist.pos = [-0.045, 0.0, 0.055]
+    wrist.alt.type = mujoco.mjtOrientation.mjORIENTATION_XYAXES
+    # look along palm +x, tilted ~20 deg down toward the grasp point
+    wrist.alt.xyaxes = [0, -1, 0, 0.34, 0, 0.94]
+    wrist.fovy = 70
+
     cam = world.add_camera()
     cam.name = "scene_cam"
     cam.pos = [1.3, -1.3, 1.15]
