@@ -35,11 +35,20 @@ class ArmPD:
     def n(self):
         return len(self.aid)
 
-    def apply(self, data, target):
-        """Write PD torques for one step. `target` is joint angles, radians."""
+    def apply(self, data, target, gravcomp=True):
+        """Write torques for one step. `target` is joint angles, radians.
+
+        Pure PD leaves a steady-state error proportional to the gravity load,
+        so the arm droops short of its target -- measured at ~0.18 m of
+        end-effector error, enough to miss a grasp entirely. `data.qfrc_bias`
+        holds the gravity + Coriolis torques for the current state; feeding
+        them forward lets the PD term handle only the tracking error.
+        """
         for k, a in enumerate(self.aid):
             tau = (self.kp * (target[k] - data.qpos[self.qadr[k]])
                    - self.kd * data.qvel[self.vadr[k]])
+            if gravcomp:
+                tau += data.qfrc_bias[self.vadr[k]]
             data.ctrl[a] = np.clip(tau, *self.m.actuator_ctrlrange[a])
 
 

@@ -75,18 +75,70 @@ must learn to close the gripper, because that is what real hardware executes.
 
 ## 2. Task design
 
-### Task 1 —
-### Task 2 —
-### Task 3 —
+### Task 1 — pick and place a block  *(implemented)*
+
+Instruction: *"pick up the red block and put it down at the target spot."*
+The block starts at a random reachable spot on the table; the robot reaches,
+grasps, lifts, transports and releases it. Success = block within 6 cm of the
+target in xy and resting at table height.
+
+### Task 2 — conditional pick and place  *(next)*
+### Task 3 — multi-stage / tool use  *(next)*
 
 ### Setup variants / anti-overfitting
 
-_Randomization axes and why each matters for generalization._
+Block position is sampled uniformly over the reachable table region
+(`scene.sample_block_pos`), so no fixed start pose can be memorised. This is
+why reaching is IK-solved rather than scripted from hand-tuned joint angles:
+hand-tuned waypoints only work for one block position and would defeat the
+purpose of randomising. Colour, size and distractor objects are the next axes.
 
 ## 3. Model-free control
 
-_Scripted controller. How I verified grasps hold, objects don't tunnel, and success
-detection fires only on true successes._
+Scripted control, no learned policy. The pipeline per episode is:
+reach to pre-grasp -> descend -> close gripper -> lift -> transport -> release.
+
+**Measured over 20 randomised block placements: 18/20 success (90%).**
+Typical run: reach error 3-5 mm, 10 finger-block contacts on close, 117 mm lift,
+final placement within 2-3 mm of target.
+
+### Getting there took three corrections
+
+**1. Table placement was guessed, and wrong.** The first table (top at z=0.37)
+was completely unreachable -- IK errors of 240-490 mm everywhere. Sampling 60k
+random arm poses showed the right grasp site cannot descend below z=0.63 at all,
+and the usable front-right region only opens up above z~0.80. The table is now
+positioned from that measured workspace rather than by eye.
+
+**2. Open-loop IK does not survive PD droop.** Solving IK once and ramping to
+the solution left the fingertip 79 mm from the block, even though the IK answer
+itself was correct to 0.33 mm (verified by teleporting the joints to it). The
+cause is ~0.02 rad of steady-state error per joint compounding down a 7-link
+chain. Raising the gains made it worse -- kp=400+ oscillates and saturates the
++/-25 Nm limit, pushing the error to 100-350 mm. The fix was closed-loop
+task-space control: re-solve a damped-least-squares IK increment against the
+*measured* site position every control step, so residual is driven out instead
+of accumulating. Error dropped from 79 mm to 3-5 mm.
+
+**3. Gravity compensation.** Arm actuators are pure torque sources with no
+gravity compensation, so `data.qfrc_bias` is fed forward and the PD term handles
+only tracking error.
+
+### Known limitation: grasp orientation is uncontrolled
+
+Position-only IK leaves the wrist free to arrive at any rotation. Beyond
+y ~ -0.21 the gripper still reaches the target point, but arrives rotated such
+that a finger pad strikes the block during descent and knocks it away -- the
+error trace *diverges* (18 -> 53 mm) while the contact list shows
+`right_finger_l_pad` against `block_geom`.
+
+Adding a 6-DOF orientation constraint was tried and made results worse (2/12).
+The reason: the arm's natural approach at this table is forward-and-slightly-down
+(~[0.9, +/-0.3, -0.3]), roughly 70 degrees away from a top-down grasp, so
+imposing one fights the kinematics. The randomised region is therefore
+restricted to the band where the natural approach works. Choosing an orientation
+target derived from the arm's natural pose, rather than an idealised top-down
+frame, is the obvious next step.
 
 ## 4. Data collection pipeline
 

@@ -30,6 +30,13 @@ def add_parallel_gripper(spec, wrist_body: str, prefix: str):
     palm.name = f"{prefix}_gripper_palm"
     palm.pos = [PALM_OFFSET_X, 0, 0]
 
+    # IK target: the point midway between the closed finger pads.
+    grasp = palm.add_site()
+    grasp.name = f"{prefix}_grasp_site"
+    grasp.pos = [FINGER_HALF[0] * 1.2, 0, 0]
+    grasp.size = [0.006, 0.006, 0.006]
+    grasp.rgba = [0.1, 0.9, 0.2, 0.6]
+
     joints = []
     for side, sign in (("l", 1.0), ("r", -1.0)):
         finger = palm.add_body()

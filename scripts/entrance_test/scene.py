@@ -17,13 +17,31 @@ from gripper import add_parallel_gripper
 
 G1_XML = "unitree_robots/g1/g1_29dof.xml"
 
-TABLE_POS = (0.55, 0.0, 0.35)
-TABLE_HALF = (0.35, 0.5, 0.02)
+# Table geometry is derived from the arm's measured workspace, not guessed.
+# Sampling 60k random arm poses shows the right grasp site cannot go below
+# z=0.63 at all, and the usable front-right region only widens above z~0.80.
+# A table top at 0.82 puts graspable objects inside that band.
+TABLE_POS = (0.35, -0.20, 0.80)
+TABLE_HALF = (0.16, 0.22, 0.02)
+TABLE_TOP = TABLE_POS[2] + TABLE_HALF[2]          # 0.82
 BLOCK_HALF = (0.022, 0.022, 0.022)
+BLOCK_REST_Z = TABLE_TOP + BLOCK_HALF[2]          # resting centre height
+
+# Region used for randomised placement. Narrower than the raw kinematic
+# workspace: beyond y ~ -0.21 the gripper still reaches the point, but arrives
+# at an orientation where a finger pad strikes the block during descent and
+# knocks it away. Constraining orientation was tried and made things worse --
+# the arm's natural approach at this table is forward-and-slightly-down
+# (~[0.9, +/-0.3, -0.3]), about 70 deg off a top-down grasp, so imposing one
+# fights the kinematics. Documented in REPORT.md as a known limitation.
+REACH_X = (0.24, 0.38)
+REACH_Y = (-0.20, -0.06)
 
 
-def build(block_pos=(0.5, -0.2, 0.45), fix_base: bool = True):
+def build(block_pos=None, fix_base: bool = True):
     """Return (spec, model) for a G1 + gripper + table + block scene."""
+    if block_pos is None:
+        block_pos = (0.30, -0.20, BLOCK_REST_Z)
     spec = mujoco.MjSpec.from_file(G1_XML)
 
     if fix_base:
@@ -107,3 +125,10 @@ def build(block_pos=(0.5, -0.2, 0.45), fix_base: bool = True):
     cam.targetbody = "pelvis"
 
     return spec, spec.compile()
+
+
+def sample_block_pos(rng):
+    """A random reachable spot on the table, for setup variants."""
+    return (float(rng.uniform(*REACH_X)),
+            float(rng.uniform(*REACH_Y)),
+            BLOCK_REST_Z)
