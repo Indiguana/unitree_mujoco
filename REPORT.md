@@ -82,8 +82,37 @@ The block starts at a random reachable spot on the table; the robot reaches,
 grasps, lifts, transports and releases it. Success = block within 6 cm of the
 target in xy and resting at table height.
 
-### Task 2 — conditional pick and place  *(next)*
-### Task 3 — multi-stage / tool use  *(next)*
+### Task 2 — language-conditioned pick and place  *(implemented)*
+
+Two coloured blocks (red, yellow) and two bins (left, right). The instruction
+names both operands:
+
+> *"put the **red** block in the **left** bin"*
+
+Four instructions over the same visual scene, so the sentence -- not the image --
+determines which of four behaviours is correct. **50/52 episodes succeeded
+(96%).** No episode placed a block in the wrong bin; the distractor block moved
+0.4-11 mm, i.e. was left essentially undisturbed. Both failures were "left bin",
+which is the bin closer to the arm's approach path.
+
+Success requires the *target* block in the *named* bin **and** the distractor
+undisturbed, so knocking both in does not count.
+
+#### Making the language non-bypassable
+
+A conditional task is only a language task if the language cannot be shortcut.
+Two properties are enforced and measured:
+
+- **Colour is assigned to a table slot at random** (`sample_conditional_layout`),
+  so "red" cannot be inferred from position. Verified 51/49 over 200 draws.
+- **Instructions are cycled, not sampled.** Random draws over 50 episodes gave
+  one combination 9 times and another 14, and correlated target colour with
+  table slot 16:7 -- enough for a policy to learn position and ignore the word.
+  Cycling makes the distribution exactly uniform (13/13/13/13).
+
+This is the difference between a vision-language-action dataset and a
+vision-action dataset with a caption attached.
+### Task 3 — multi-stage / tool use  *(not implemented; see section 6)*
 
 ### Setup variants / anti-overfitting
 
@@ -178,6 +207,19 @@ and for training value or critic heads later.
 All 7 failures are the same boundary case documented in section 3 -- block
 sampled at the far edge of the reachable band, gripper arrives rotated, finger
 pad knocks the block instead of straddling it.
+
+### Combined dataset
+
+Both tasks are converted into a **single** LeRobot dataset rather than two. A
+VLA conditions on the instruction, so mixing tasks under distinct instructions is
+the point; LeRobot tracks each distinct `task` string separately.
+
+| | |
+|---|---|
+| Episodes | 93 (43 task 1 + 50 task 2) |
+| Frames | 22,945 |
+| Distinct instructions | 5 |
+| Size | 158 MB |
 
 ### Conversion to LeRobot
 

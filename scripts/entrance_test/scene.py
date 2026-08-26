@@ -38,10 +38,26 @@ REACH_X = (0.24, 0.38)
 REACH_Y = (-0.20, -0.06)
 
 
-def build(block_pos=None, fix_base: bool = True):
-    """Return (spec, model) for a G1 + gripper + table + block scene."""
-    if block_pos is None:
-        block_pos = (0.30, -0.20, BLOCK_REST_Z)
+# --- Task 2: conditional pick and place ------------------------------------
+# Bins sit at the far edge of the table. Release tolerates a much wider region
+# than grasping does (measured: sub-mm IK error across x 0.24-0.40, y -0.40..-0.04
+# at release height, versus the narrow band grasping needs), so the bins can go
+# where the blocks cannot.
+BIN_X = 0.385
+BIN_Y = {"left": -0.075, "right": -0.335}
+BIN_INNER = 0.038
+BIN_WALL = 0.006
+BIN_WALL_H = 0.025
+BIN_RGBA = {"left": [0.20, 0.35, 0.75, 1.0], "right": [0.25, 0.55, 0.30, 1.0]}
+
+COLORS = {"red": [0.85, 0.15, 0.15, 1.0], "yellow": [0.90, 0.80, 0.10, 1.0]}
+# Two well-separated slots so the gripper cannot straddle both blocks at once.
+SLOT_X = (0.25, 0.31)
+SLOT_Y = {"a": (-0.20, -0.17), "b": (-0.10, -0.07)}
+
+
+def _base_scene(fix_base: bool = True):
+    """Robot + gripper + table + lighting + cameras, shared by all tasks."""
     spec = mujoco.MjSpec.from_file(G1_XML)
 
     if fix_base:
@@ -104,20 +120,6 @@ def build(block_pos=None, fix_base: bool = True):
     tg.size = list(TABLE_HALF)
     tg.rgba = [0.55, 0.42, 0.30, 1.0]
 
-    block = world.add_body()
-    block.name = "block"
-    block.pos = list(block_pos)
-    bj = block.add_joint()
-    bj.name = "block_free"
-    bj.type = mujoco.mjtJoint.mjJNT_FREE
-    bg = block.add_geom()
-    bg.name = "block_geom"
-    bg.type = mujoco.mjtGeom.mjGEOM_BOX
-    bg.size = list(BLOCK_HALF)
-    bg.rgba = [0.85, 0.15, 0.15, 1.0]
-    bg.friction = [1.6, 0.05, 0.001]
-    bg.mass = 0.05
-
     # --- observation cameras for VLA data -----------------------------
     # A VLA needs the scene from a stable viewpoint plus a close-in view that
     # moves with the hand; the wrist view is what disambiguates fine alignment
@@ -144,7 +146,89 @@ def build(block_pos=None, fix_base: bool = True):
     cam.mode = mujoco.mjtCamLight.mjCAMLIGHT_TARGETBODY
     cam.targetbody = "pelvis"
 
+    return spec, world
+
+
+def _add_block(world, name, pos, rgba):
+    b = world.add_body()
+    b.name = name
+    b.pos = list(pos)
+    j = b.add_joint()
+    j.name = f"{name}_free"
+    j.type = mujoco.mjtJoint.mjJNT_FREE
+    g = b.add_geom()
+    g.name = f"{name}_geom"
+    g.type = mujoco.mjtGeom.mjGEOM_BOX
+    g.size = list(BLOCK_HALF)
+    g.rgba = list(rgba)
+    g.friction = [1.6, 0.05, 0.001]
+    g.mass = 0.05
+    return b
+
+
+def _add_bin(world, side):
+    """Shallow open tray. Low walls so a block released from above drops in
+    without bouncing back out."""
+    y = BIN_Y[side]
+    body = world.add_body()
+    body.name = f"bin_{side}"
+    body.pos = [BIN_X, y, TABLE_TOP]
+    rgba = BIN_RGBA[side]
+
+    base = body.add_geom()
+    base.name = f"bin_{side}_base"
+    base.type = mujoco.mjtGeom.mjGEOM_BOX
+    base.size = [BIN_INNER + BIN_WALL, BIN_INNER + BIN_WALL, 0.003]
+    base.pos = [0, 0, 0.003]
+    base.rgba = rgba
+
+    for k, (dx, dy) in enumerate(((1, 0), (-1, 0), (0, 1), (0, -1))):
+        w = body.add_geom()
+        w.name = f"bin_{side}_wall{k}"
+        w.type = mujoco.mjtGeom.mjGEOM_BOX
+        w.size = ([BIN_WALL, BIN_INNER + BIN_WALL, BIN_WALL_H] if dx
+                  else [BIN_INNER + BIN_WALL, BIN_WALL, BIN_WALL_H])
+        w.pos = [dx * (BIN_INNER + BIN_WALL), dy * (BIN_INNER + BIN_WALL), BIN_WALL_H]
+        w.rgba = rgba
+    return body
+
+
+def build(block_pos=None, fix_base: bool = True):
+    """Task 1 scene: one red block on the table."""
+    if block_pos is None:
+        block_pos = (0.30, -0.20, BLOCK_REST_Z)
+    spec, world = _base_scene(fix_base)
+    _add_block(world, "block", block_pos, COLORS["red"])
     return spec, spec.compile()
+
+
+def build_conditional(layout=None, fix_base: bool = True):
+    """Task 2 scene: two coloured blocks and two bins.
+
+    `layout` maps colour -> (x, y). Colour is assigned to slot randomly by
+    `sample_conditional_layout`, so colour is never correlated with position --
+    otherwise a policy could satisfy the instruction by memorising 'the block
+    at the far slot' and ignore the word entirely.
+    """
+    if layout is None:
+        layout = {"red": (0.28, -0.185), "yellow": (0.28, -0.085)}
+    spec, world = _base_scene(fix_base)
+    for color, (x, y) in layout.items():
+        _add_block(world, f"block_{color}", (x, y, BLOCK_REST_Z), COLORS[color])
+    for side in ("left", "right"):
+        _add_bin(world, side)
+    return spec, spec.compile()
+
+
+def sample_conditional_layout(rng):
+    """Randomise both positions and which colour occupies which slot."""
+    colors = list(COLORS)
+    rng.shuffle(colors)
+    layout = {}
+    for color, slot in zip(colors, ("a", "b")):
+        layout[color] = (float(rng.uniform(*SLOT_X)),
+                         float(rng.uniform(*SLOT_Y[slot])))
+    return layout
 
 
 def sample_block_pos(rng):

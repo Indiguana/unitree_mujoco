@@ -1,7 +1,8 @@
 """Convert recorded episodes to a LeRobot dataset.
 
     python scripts/entrance_test/to_lerobot.py \
-        --in data/task1 --repo-id indiguana/g1-pickplace-task1 --out lerobot/task1
+        --in data/task1 data/task2 \
+        --repo-id indiguana/g1-manipulation --out lerobot/all
 
 LeRobot is the format GR00T N1.5 and openpi consume, so converting to it is what
 makes this data usable by an off-the-shelf VLA rather than only by my own code.
@@ -51,21 +52,29 @@ def build_features(h, w, cameras, state_dim, action_dim):
     return feats
 
 
-def convert(in_dir, repo_id, out_dir, include_failures=False, limit=None):
+def convert(in_dirs, repo_id, out_dir, include_failures=False, limit=None):
+    """Convert one or more recorded task directories into a single dataset.
+
+    Several tasks belong in one dataset, not several: a VLA is trained to
+    condition on the instruction, so mixing tasks under distinct instructions is
+    the point. LeRobot tracks each distinct `task` string separately.
+    """
     from PIL import Image
     from lerobot.datasets.lerobot_dataset import LeRobotDataset
 
-    index_path = os.path.join(in_dir, "index.json")
-    with open(index_path) as f:
+    if isinstance(in_dirs, str):
+        in_dirs = [in_dirs]
+
+    with open(os.path.join(in_dirs[0], "index.json")) as f:
         index = json.load(f)
 
-    eps = sorted(glob.glob(os.path.join(in_dir, "episode_*")))
     chosen = []
-    for d in eps:
-        with open(os.path.join(d, "meta.json")) as f:
-            meta = json.load(f)
-        if meta["success"] or include_failures:
-            chosen.append((d, meta))
+    for in_dir in in_dirs:
+        for d in sorted(glob.glob(os.path.join(in_dir, "episode_*"))):
+            with open(os.path.join(d, "meta.json")) as f:
+                meta = json.load(f)
+            if meta["success"] or include_failures:
+                chosen.append((d, meta))
     if limit:
         chosen = chosen[:limit]
     if not chosen:
@@ -83,7 +92,9 @@ def convert(in_dir, repo_id, out_dir, include_failures=False, limit=None):
     )
 
     total = 0
+    tasks = {}
     for d, meta in chosen:
+        tasks[meta["task"]] = tasks.get(meta["task"], 0) + 1
         arr = np.load(os.path.join(d, "frames.npz"))
         state, action = arr["state"], arr["action"]
         n = len(state)
@@ -104,12 +115,15 @@ def convert(in_dir, repo_id, out_dir, include_failures=False, limit=None):
     if hasattr(ds, "finalize"):
         ds.finalize()
     print(f"\nconverted {len(chosen)} episodes / {total} frames -> {out_dir}")
+    print("instructions in dataset:")
+    for t, n in sorted(tasks.items()):
+        print(f"  {n:>3}x  {t}")
     return ds
 
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--in", dest="in_dir", default="data/task1")
+    ap.add_argument("--in", dest="in_dir", nargs="+", default=["data/task1"])
     ap.add_argument("--repo-id", default="indiguana/g1-pickplace-task1")
     ap.add_argument("--out", default="lerobot/task1")
     ap.add_argument("--include-failures", action="store_true")
