@@ -90,13 +90,15 @@ names both operands:
 > *"put the **red** block in the **left** bin"*
 
 Four instructions over the same visual scene, so the sentence -- not the image --
-determines which of four behaviours is correct. **50/52 episodes succeeded
-(96%).** No episode placed a block in the wrong bin; the distractor block moved
+determines which of four behaviours is correct. **52/52 episodes succeeded
+(100%).** No episode placed a block in the wrong bin; the distractor block moved
 0.4-11 mm, i.e. was left essentially undisturbed. Both failures were "left bin",
 which is the bin closer to the arm's approach path.
 
 Success requires the *target* block in the *named* bin **and** the distractor
 undisturbed, so knocking both in does not count.
+
+**After body stabilisation this task reaches 52/52 (100%).** See section 6.
 
 #### Making the language non-bypassable
 
@@ -127,7 +129,7 @@ purpose of randomising. Colour, size and distractor objects are the next axes.
 Scripted control, no learned policy. The pipeline per episode is:
 reach to pre-grasp -> descend -> close gripper -> lift -> transport -> release.
 
-**Measured over 20 randomised block placements: 18/20 success (90%).**
+**Measured over 50 randomised block placements: 43/50 success (86%).**
 Typical run: reach error 3-5 mm, 10 finger-block contacts on close, 117 mm lift,
 final placement within 2-3 mm of target.
 
@@ -196,8 +198,9 @@ and for training value or critic heads later.
 
 | | |
 |---|---|
-| Episodes | 50 attempted, **43 successful (86%)** |
-| Frames | 12,492 recorded / 10,353 in the training split |
+| Task 1 | 50 attempted, **43 successful (86%)** |
+| Task 2 | 52 attempted, **52 successful (100%)** |
+| Frames | 23,325 recorded / 21,186 in the training split |
 | Rate | 30 Hz, ~250 frames (~8 s) per episode |
 | Cameras | head + wrist, 320x240 RGB |
 | Collection time | 322 s (6.4 s/episode) |
@@ -216,10 +219,9 @@ the point; LeRobot tracks each distinct `task` string separately.
 
 | | |
 |---|---|
-| Episodes | 93 (43 task 1 + 50 task 2) |
-| Frames | 22,945 |
+| Episodes | 95 (43 task 1 + 52 task 2) |
+| Frames | 21,186 |
 | Distinct instructions | 5 |
-| Size | 158 MB |
 
 ### Conversion to LeRobot
 
@@ -232,7 +234,7 @@ by my own code. Feature naming follows the LeRobot convention
 Converting is not evidence on its own, so `verify_lerobot.py` re-opens the
 dataset and asserts that frames load with the right shapes, that images decode
 into [0,1], and that every frame carries a non-empty instruction. It passes on
-all 43 episodes.
+all 95 episodes.
 
 One platform note worth recording: LeRobot defaults to the `torchcodec` video
 decoder, which needs arm64 FFmpeg shared libraries under `/opt/homebrew`. This
@@ -269,3 +271,26 @@ _Including the ones I did not solve._
 | Policy integration | |
 | Reporting + video | |
 | **Total** | |
+
+### Stabilising the unactuated body
+
+Checking video framing surfaced a data bug. Only the right arm performs the task,
+but every other joint is a torque-driven chain: left uncommanded, the **left arm**
+collapsed into a folded pose across the chest, and the **waist** was dragged by the
+arm's reaction forces through roughly **30 degrees per episode** (measured yaw
+-0.28, roll -0.52, pitch +0.52 rad).
+
+The waist matters beyond appearance. `head_cam` is mounted on `torso_link`, so an
+uncommanded waist means the "fixed" third-person camera swung through every
+episode already recorded -- a viewpoint that moves in correlation with the arm
+motion, which is both wrong and a shortcut a policy could exploit. Holding the
+waist reduced head-camera drift to **0.5 mm** per episode.
+
+It was not only cosmetic. With a stable base for the arm to react against:
+
+| | before | after |
+|---|---|---|
+| Task 1 | 10/12 | 11/12 |
+| Task 2 | 15/16 (94%) | 12/12, then 52/52 (100%) |
+
+Both datasets were re-collected after this change.

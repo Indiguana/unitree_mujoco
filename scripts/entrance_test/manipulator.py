@@ -16,6 +16,23 @@ ARM_JOINTS = ["right_shoulder_pitch_joint", "right_shoulder_roll_joint",
               "right_shoulder_yaw_joint", "right_elbow_joint",
               "right_wrist_roll_joint", "right_wrist_pitch_joint",
               "right_wrist_yaw_joint"]
+
+# Only the right arm performs the task, but the left arm is a torque-driven
+# chain like any other: left uncommanded it sags into a collapsed pose with the
+# elbow at ~1.5 rad, folded across the chest. That is visible in every rendered
+# frame and in the head camera, so it is held at a neutral rest pose instead.
+LEFT_ARM_ACTUATORS = ["left_shoulder_pitch", "left_shoulder_roll",
+                      "left_shoulder_yaw", "left_elbow",
+                      "left_wrist_roll", "left_wrist_pitch", "left_wrist_yaw"]
+LEFT_REST = [0.10, 0.18, 0.0, 0.25, 0.0, 0.0, 0.0]
+
+# The waist is unactuated too, and the arm's reaction forces drag it: measured
+# drift of yaw -0.28, roll -0.52, pitch +0.52 rad (about 30 deg) over a single
+# episode. This is not cosmetic -- head_cam is mounted on torso_link, so an
+# uncommanded waist means the "fixed" third-person camera swings through every
+# episode. Holding it upright keeps the viewpoint actually fixed.
+WAIST_ACTUATORS = ["waist_yaw", "waist_roll", "waist_pitch"]
+WAIST_REST = [0.0, 0.0, 0.0]
 STROKE = 0.024
 APPROACH_H = 0.12
 
@@ -31,6 +48,10 @@ class Manipulator:
         self.fingers = [self.nid(mujoco.mjtObj.mjOBJ_ACTUATOR, n)
                         for n in ("right_finger_l_act", "right_finger_r_act")]
         self.arm = ArmPD(self.m)
+        self.left_arm = ArmPD(self.m, LEFT_ARM_ACTUATORS)
+        self.left_rest = np.array(LEFT_REST)
+        self.waist = ArmPD(self.m, WAIST_ACTUATORS)
+        self.waist_rest = np.array(WAIST_REST)
         self.ik = ArmIK(self.m, "right_grasp_site", ARM_JOINTS)
         self.qadr = self.ik.qadr
         self.fadr = [self.m.jnt_qposadr[self.nid(mujoco.mjtObj.mjOBJ_JOINT, n)]
@@ -67,6 +88,11 @@ class Manipulator:
         recorder.attach(self.m)
         self.recorder = recorder
 
+    def _hold_left(self):
+        """Hold the non-task joints steady: left arm and waist."""
+        self.left_arm.apply(self.d, self.left_rest)
+        self.waist.apply(self.d, self.waist_rest)
+
     def _record(self, q_target):
         if self.recorder is not None:
             action = np.concatenate([q_target, [self._grip_cmd]])
@@ -85,6 +111,7 @@ class Manipulator:
         for i in range(steps):
             q_target, err = self.ik.step_toward(self.d, xyz)
             self.arm.apply(self.d, q_target)
+            self._hold_left()
             if grip is not None:
                 self._grip_cmd = grip
                 for a in self.fingers:
@@ -101,6 +128,7 @@ class Manipulator:
         self._grip_cmd = value
         for i in range(steps):
             self.arm.apply(self.d, q)
+            self._hold_left()
             for a in self.fingers:
                 self.d.ctrl[a] = value
             self._record(q)

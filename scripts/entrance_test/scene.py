@@ -142,9 +142,13 @@ def _base_scene(fix_base: bool = True):
 
     cam = world.add_camera()
     cam.name = "scene_cam"
-    cam.pos = [1.3, -1.3, 1.15]
+    # Framed on the working area rather than the whole robot: the task occupies
+    # a ~0.3 m patch of table, and at the previous distance it was a sixth of
+    # the frame.
+    cam.pos = [1.05, -1.05, 1.45]
+    cam.fovy = 55
     cam.mode = mujoco.mjtCamLight.mjCAMLIGHT_TARGETBODY
-    cam.targetbody = "pelvis"
+    cam.targetbody = "table"
 
     return spec, world
 
